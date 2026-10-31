@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>SkinDrop</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Unbounded:wght@600;700&display=swap" rel="stylesheet">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg: #060a13; --panel: #0e1526; --panel-2: #152038; --line: #1c2843;
+      --text: #eaf0ff; --muted: #8090b2; --acc: #3d7bff; --acc-hi: #39c8ff;
+      --grad: linear-gradient(120deg, #3a6cff 0%, #3d8bff 45%, #36c6ff 100%);
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
+    body {
+      font-family: "Onest", -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 15px; line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+      background: radial-gradient(90% 45% at 50% -8%, rgba(61,123,255,.22) 0%, transparent 70%), var(--bg);
+      display: grid; place-items: center; padding: 24px 16px;
+    }
+    .wrap { width: 100%; max-width: 360px; text-align: center; }
+    .logo { font-family: "Unbounded", "Onest", sans-serif; font-weight: 700; font-size: 26px; letter-spacing: .5px; }
+    .logo span { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .spinner { width: 34px; height: 34px; margin: 28px auto 0; border-radius: 50%;
+      border: 3px solid var(--line); border-top-color: var(--acc-hi); animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .hint { color: var(--muted); margin-top: 14px; font-size: 13px; }
+    .down { display: none; margin-top: 28px; padding: 22px 18px; border-radius: 22px;
+      background: var(--panel); border: 1px solid var(--line); }
+    .is-down .down { display: block; }
+    .is-down .spinner, .is-down .hint { display: none; }
+    .icon { width: 56px; height: 56px; margin: 0 auto 14px; border-radius: 16px; display: grid; place-items: center;
+      background: var(--panel-2); border: 1px solid var(--line); }
+    h1 { font-family: "Unbounded", "Onest", sans-serif; font-size: 17px; font-weight: 600; margin: 0 0 8px; }
+    p { margin: 0; color: var(--muted); }
+    button { margin-top: 18px; width: 100%; border: 0; border-radius: 16px; padding: 14px; cursor: pointer;
+      font: 700 15px "Onest", sans-serif; color: #fff; background: var(--grad);
+      box-shadow: 0 8px 24px rgba(61,123,255,.3); }
+    button:disabled { opacity: .6; }
+    .auto { margin-top: 12px; font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap" id="wrap">
+    <div class="logo">Skin<span>Drop</span></div>
+    <div class="spinner"></div>
+    <div class="hint" id="hint">Подключаемся…</div>
+
+    <div class="down">
+      <div class="icon">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#39c8ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/>
+        </svg>
+      </div>
+      <h1>Скоро вернёмся</h1>
+      <p>Сервер игры сейчас недоступен — идут технические работы или перезапуск. Ваши скины, монеты и крутки в сохранности.</p>
+      <button id="retry">Попробовать снова</button>
+      <div class="auto" id="auto"></div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      var tg = window.Telegram && window.Telegram.WebApp;
+      if (tg) {
+        try { tg.ready(); tg.expand(); tg.setHeaderColor("#060a13"); tg.setBackgroundColor("#060a13"); } catch (e) {}
+      }
+      var RETRY_SEC = 15, timer = null, left = 0;
+
+      function withTimeout(ms) {
+        var c = new AbortController();
+        setTimeout(function () { c.abort(); }, ms);
+        return c.signal;
+      }
+
+      // Адрес сервера лежит в server.json рядом: его меняют, когда меняется адрес туннеля или сервера
+      function serverUrl() {
+        return fetch("server.json?t=" + Date.now(), { cache: "no-store", signal: withTimeout(5000) })
+          .then(function (r) { return r.json(); })
+          .then(function (j) { return String(j.url || "").replace(/\/+$/, ""); });
+      }
+
+      function check() {
+        document.body.classList.remove("is-down");
+        $("retry").disabled = true;
+        clearInterval(timer);
+        serverUrl()
+          .then(function (url) {
+            if (!url) throw new Error("no url");
+            return fetch(url + "/api/status", { cache: "no-store", signal: withTimeout(6000) })
+              .then(function (r) { return r.ok ? r.json() : null; })
+              .then(function (j) {
+                if (!j || !j.ok) throw new Error("down");
+                $("hint").textContent = "Открываем игру…";
+                // Telegram передаёт данные входа в адресе после «#» — переносим их в игру как есть
+                location.replace(url + "/" + location.search + location.hash);
+              });
+          })
+          .catch(showDown);
+      }
+
+      function showDown() {
+        document.body.classList.add("is-down");
+        $("retry").disabled = false;
+        left = RETRY_SEC;
+        tick();
+        timer = setInterval(function () { left--; tick(); if (left <= 0) check(); }, 1000);
+      }
+      function tick() { $("auto").textContent = "Автоматически проверим через " + left + " с"; }
+      function $(id) { return document.getElementById(id); }
+
+      $("retry").addEventListener("click", function () {
+        if (tg && tg.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+        check();
+      });
+      check();
+    })();
+  </script>
+</body>
+</html>
